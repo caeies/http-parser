@@ -1,13 +1,20 @@
-CPPFLAGS?=-Wall -Wextra -Werror -I. -fPIC
-OPT_DEBUG=$(CPPFLAGS) -O0 -g -DHTTP_PARSER_STRICT=1
-OPT_FAST=$(CPPFLAGS) -O3 -DHTTP_PARSER_STRICT=0
-
 CC?=gcc
 AR?=ar
 GIT?=git
 
 LIBEXT?=so
 LIBPRE?=lib
+
+CPPFLAGS += -I.
+CPPFLAGS_DEBUG = $(CPPFLAGS) -DHTTP_PARSER_STRICT=1 -DHTTP_PARSER_DEBUG=1
+CPPFLAGS_DEBUG += $(CPPFLAGS_DEBUG_EXTRA)
+CPPFLAGS_FAST = $(CPPFLAGS) -DHTTP_PARSER_STRICT=0 -DHTTP_PARSER_DEBUG=0
+CPPFLAGS_FAST += $(CPPFLAGS_FAST_EXTRA)
+
+CFLAGS += -Wall -Wextra -Werror
+CFLAGS_DEBUG = $(CFLAGS) -O0 -g $(CFLAGS_DEBUG_EXTRA)
+CFLAGS_FAST = $(CFLAGS) -O3 $(CFLAGS_FAST_EXTRA)
+CFLAGS_LIB = -fPIC
 
 GIT_VERSION:=$(shell $(GIT) log -1 --format=%H || echo Unknown)$(shell $(GIT) status --porcelain |grep "^[ MARCDU][ MDAU] " > /dev/null && echo "-Modified")
 
@@ -23,25 +30,22 @@ ltest_g: test_g.o $(LIBPRE)http_parser_g.$(LIBEXT)
 	$(CC) $(OPT_FAST) -o $@ -Wl,-rpath=. -L. -lhttp_parser_g $<
 
 test_g: http_parser_g.a test_g.o
-	$(CC) $(OPT_DEBUG) test_g.o http_parser_g.a -o $@
+	$(CC) $(CFLAGS_DEBUG) $(LDFLAGS) test_g.o http_parser_g.a -o $@
 
 test_g.o: test.c http_parser.h Makefile
-	$(CC) $(OPT_DEBUG) -c test.c -o $@
-
-test.o: test.c http_parser.h Makefile
-	$(CC) $(OPT_FAST) -c test.c -o $@
+	$(CC) $(CPPFLAGS_DEBUG) $(CFLAGS_DEBUG) -c test.c -o $@
 
 http_parser_g.o: http_parser.c http_parser.h Makefile
-	$(CC) $(OPT_DEBUG) -c http_parser.c -o $@
+	$(CC) $(CPPFLAGS_DEBUG) $(CFLAGS_DEBUG) $(CFLAGS_LIB) -c $< -o $@
 
-test-valgrind: test_g
-	valgrind ./test_g
+test_fast: http_parser.a test.o http_parser.h
+	$(CC) $(CFLAGS_FAST) $(LDFLAGS) test.o http_parser.a -o $@
+
+test.o: test.c http_parser.h Makefile
+	$(CC) $(CPPFLAGS_FAST) $(CFLAGS_FAST) -c test.c -o $@
 
 http_parser.o: http_parser.c http_parser.h Makefile
-	$(CC) $(OPT_FAST) -c http_parser.c
-
-test_fast: http_parser.a test.c http_parser.h
-	$(CC) $(OPT_FAST) test.c http_parser.a -o $@
+	$(CC) $(CPPFLAGS_FAST) $(CFLAGS_FAST) $(CFLAGS_LIB) -c $<
 
 test-run-timed: test_fast
 	while(true) do time ./test_fast > /dev/null; done
@@ -58,17 +62,20 @@ $(LIBPRE)http_parser.$(LIBEXT): http_parser.o version.o
 $(LIBPRE)http_parser_g.$(LIBEXT): http_parser_g.o version_g.o
 	$(CC) -shared -Wl,-rpath=. -o $@ $^
 
-version-$(GIT_VERSION).c : Makefile
+version-$(GIT_VERSION).c : Makefile http_parser.c http_parser.h
 	echo "const char * http_git_version() { return \"$(GIT_VERSION)\"; }" > $@
 
 version.o: version-$(GIT_VERSION).c
-	$(CC) $(OPT_FAST) -c $< -o $@
+	$(CC) $(CFLAGS_FAST)  -c $< -o $@
 
 version_g.o: version-$(GIT_VERSION).c
-	$(CC) $(OPT_DEBUG) -c $< -o $@
+	$(CC) $(CFLAGS_DEBUG) -c $< -o $@
 
-package: http_parser.o
-	$(AR) rcs libhttp_parser.a http_parser.o
+test-valgrind: test_g
+	valgrind ./test_g
+
+libhttp_parser.o: http_parser.c http_parser.h Makefile
+	$(CC) $(CPPFLAGS_FAST) $(CFLAGS_LIB) -c http_parser.c -o libhttp_parser.o
 
 tags: http_parser.c http_parser.h test.c
 	ctags $^
